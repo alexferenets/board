@@ -201,8 +201,10 @@ function parseExternalDue(value) {
     const [year, month, day] = text.split("-").map(Number);
     return { date: new Date(year, month - 1, day), allDay: true };
   }
-  const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? null : { date, allDay: false };
+  const normalizedText = text.replace(/\s+at\s+/i, " ");
+  const date = new Date(normalizedText);
+  const allDay = /\bat\s+00:00$/i.test(text) || /\s00:00$/.test(normalizedText);
+  return Number.isNaN(date.getTime()) ? null : { date, allDay };
 }
 
 function parseBlocks(text, type) {
@@ -504,7 +506,9 @@ function normalizeExternalReminder(raw, index, source = "sync") {
   const title = get("title", "Title", "name", "Name", "summary", "Summary");
   const completed = get("completed", "Completed", "isCompleted", "Is Completed", "IsCompleted");
   const status = get("status", "Status");
-  if (!title || completed === true || status === "completed" || status === "Completed") return null;
+  const completedText = String(completed ?? "").toLowerCase();
+  const isCompleted = completed === true || completedText === "true" || completedText === "yes" || status === "completed" || status === "Completed";
+  if (!title || isCompleted) return null;
   if (isAppleSystemReminder(title)) return null;
   const due = parseExternalDue(get("due", "Due", "dueDate", "Due Date", "DueDate", "deadline", "Deadline"));
   return {
@@ -519,19 +523,38 @@ function normalizeExternalReminder(raw, index, source = "sync") {
   };
 }
 
+function looksLikeReminderObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return ["title", "Title", "name", "Name", "summary", "Summary"].some((key) => value[key] !== undefined);
+}
+
+function parseShortcutJsonKey(key) {
+  if (!key.trim().startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(key);
+    return looksLikeReminderObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractReminderItems(value) {
+  if (Array.isArray(value)) return value;
+  if (looksLikeReminderObject(value)) return [value];
+  if (!value || typeof value !== "object") return [];
+  return Object.entries(value).flatMap(([key, entryValue]) => {
+    const parsedKey = parseShortcutJsonKey(key);
+    if (parsedKey) return [parsedKey];
+    if (Array.isArray(entryValue)) return entryValue;
+    if (looksLikeReminderObject(entryValue)) return [entryValue];
+    return [];
+  });
+}
+
 function normalizeReminderSyncPayload(payload) {
   const source = String(payload.source || payload.Source || "apple-reminders");
-  const reminders = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload.reminders)
-      ? payload.reminders
-      : Array.isArray(payload.Reminders)
-        ? payload.Reminders
-        : Array.isArray(payload.items)
-          ? payload.items
-          : Array.isArray(payload.Items)
-            ? payload.Items
-            : [];
+  const container = payload.reminders ?? payload.Reminders ?? payload.items ?? payload.Items ?? payload;
+  const reminders = extractReminderItems(container);
   return {
     source,
     generatedAt: payload.generatedAt || new Date().toISOString(),
