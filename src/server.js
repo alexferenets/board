@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const publicDir = path.join(rootDir, "public");
+const defaultDataDir = path.join(rootDir, "data");
 const port = Number(process.env.BOARD_PORT || 4173);
 const host = process.env.BOARD_HOST || "127.0.0.1";
 
@@ -48,6 +49,10 @@ function jsonResponse(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function badRequest(res, message) {
+  jsonResponse(res, 400, { error: message });
+}
+
 function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
@@ -73,6 +78,23 @@ function isAppleSystemReminder(title = "") {
   ].includes(title.trim());
 }
 
+function resolveDataPath(configPath = "data/reminders.json") {
+  return path.isAbsolute(configPath) ? configPath : path.join(rootDir, configPath);
+}
+
+function getReminderSyncConfig(config) {
+  const sync = config.reminderSync || {};
+  return {
+    enabled: sync.enabled !== false,
+    token: sync.token || process.env.REMINDER_SYNC_TOKEN || "",
+    path: resolveDataPath(sync.path || "data/reminders.json")
+  };
+}
+
+function isPlaceholderToken(token = "") {
+  return !token || /change|example|token/i.test(token);
+}
+
 function describeGoogleCalendarUrlProblem(url = "") {
   if (!/calendar\.google\.com/i.test(url)) return "";
   try {
@@ -96,6 +118,27 @@ async function loadConfig() {
     : path.join(rootDir, "config.example.json");
   const raw = await readFile(configPath, "utf8");
   return JSON.parse(raw);
+}
+
+async function readJsonFile(filePath, fallback) {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return fallback;
+    throw error;
+  }
+}
+
+async function readRequestJson(req, maxBytes = 512000) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > maxBytes) throw new Error("Request body is too large");
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return {};
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
 function addDays(date, days) {
@@ -147,6 +190,19 @@ function parseIcsDate(field) {
   const [, y, mo, d, h, mi, s, z] = match;
   const args = [Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s)];
   return { date: z ? new Date(Date.UTC(...args)) : new Date(...args), allDay: false };
+}
+
+function parseExternalDue(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : { date: value, allDay: false };
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [year, month, day] = text.split("-").map(Number);
+    return { date: new Date(year, month - 1, day), allDay: true };
+  }
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : { date, allDay: false };
 }
 
 function parseBlocks(text, type) {
@@ -443,6 +499,79 @@ async function fetchAppleReminders(config) {
   };
 }
 
+function normalizeExternalReminder(raw, index, source = "sync") {
+  const title = raw.title || raw.name || raw.summary;
+  if (!title || raw.completed === true || raw.isCompleted === true || raw.status === "completed") return null;
+  if (isAppleSystemReminder(title)) return null;
+  const due = parseExternalDue(raw.due || raw.dueDate || raw.deadline);
+  return {
+    id: String(raw.id || raw.uid || `${source}:${index}:${title}`),
+    title: String(title),
+    list: String(raw.list || raw.listName || raw.calendar || source),
+    color: String(raw.color || "#B14BC9"),
+    due: due?.date.toISOString() || null,
+    allDay: raw.allDay ?? due?.allDay ?? false,
+    completed: false,
+    source
+  };
+}
+
+function normalizeReminderSyncPayload(payload) {
+  const source = String(payload.source || "apple-reminders");
+  const reminders = Array.isArray(payload.reminders) ? payload.reminders : Array.isArray(payload.items) ? payload.items : [];
+  return {
+    source,
+    generatedAt: payload.generatedAt || new Date().toISOString(),
+    receivedAt: new Date().toISOString(),
+    reminders: reminders.map((item, index) => normalizeExternalReminder(item, index, source)).filter(Boolean)
+  };
+}
+
+async function fetchSyncedReminders(config) {
+  const sync = getReminderSyncConfig(config);
+  if (!sync.enabled) return { reminders: [], errors: [] };
+  const payload = await readJsonFile(sync.path, null);
+  if (!payload) return { reminders: [], errors: [] };
+  return {
+    reminders: (payload.reminders || []).filter((reminder) => !reminder.completed),
+    errors: []
+  };
+}
+
+async function handleReminderSync(req, res) {
+  const config = await loadConfig();
+  const sync = getReminderSyncConfig(config);
+  if (!sync.enabled) {
+    jsonResponse(res, 404, { error: "Reminder sync is disabled" });
+    return;
+  }
+  if (isPlaceholderToken(sync.token)) {
+    jsonResponse(res, 403, { error: "Reminder sync token is not configured" });
+    return;
+  }
+  const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : requestUrl.searchParams.get("token");
+  if (token !== sync.token) {
+    jsonResponse(res, 401, { error: "Invalid reminder sync token" });
+    return;
+  }
+  let payload;
+  try {
+    payload = normalizeReminderSyncPayload(await readRequestJson(req));
+  } catch (error) {
+    badRequest(res, error.message);
+    return;
+  }
+  await mkdir(path.dirname(sync.path), { recursive: true });
+  await writeFile(sync.path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  jsonResponse(res, 200, {
+    ok: true,
+    receivedAt: payload.receivedAt,
+    reminders: payload.reminders.length
+  });
+}
+
 function remindersToTaskEvents(reminders) {
   return reminders.filter((reminder) => reminder.due).map((reminder) => {
     const start = new Date(reminder.due);
@@ -468,12 +597,14 @@ function remindersToTaskEvents(reminders) {
 
 async function getState() {
   const config = await loadConfig();
-  const [calendarData, weather, stocks, reminderData] = await Promise.all([
+  const [calendarData, weather, stocks, caldavReminderData, syncedReminderData] = await Promise.all([
     fetchCalendars(config).catch((error) => ({ events: [], errors: [error.message] })),
     fetchWeather(config).catch((error) => ({ error: error.message })),
     fetchStocks(config).catch((error) => [{ error: error.message }]),
-    fetchAppleReminders(config).catch((error) => ({ reminders: [], errors: [error.message] }))
+    fetchAppleReminders(config).catch((error) => ({ reminders: [], errors: [error.message] })),
+    fetchSyncedReminders(config).catch((error) => ({ reminders: [], errors: [error.message] }))
   ]);
+  const reminders = [...caldavReminderData.reminders, ...syncedReminderData.reminders];
   return {
     title: config.title,
     locale: config.locale || "en-US",
@@ -483,10 +614,10 @@ async function getState() {
     generatedAt: new Date().toISOString(),
     weather,
     stocks,
-    events: [...calendarData.events, ...remindersToTaskEvents(reminderData.reminders)].sort((a, b) => new Date(a.start) - new Date(b.start)),
-    reminders: reminderData.reminders.sort((a, b) => new Date(a.due) - new Date(b.due)),
+    events: [...calendarData.events, ...remindersToTaskEvents(reminders)].sort((a, b) => new Date(a.start) - new Date(b.start)),
+    reminders: reminders.sort((a, b) => new Date(a.due || 0) - new Date(b.due || 0)),
     shopping: [],
-    errors: [...(calendarData.errors || []), ...(reminderData.errors || [])]
+    errors: [...(calendarData.errors || []), ...(caldavReminderData.errors || []), ...(syncedReminderData.errors || [])]
   };
 }
 
@@ -547,6 +678,14 @@ async function serveStatic(req, res) {
 
 createServer(async (req, res) => {
   try {
+    if (req.url?.startsWith("/api/sync/reminders")) {
+      if (req.method !== "POST") {
+        jsonResponse(res, 405, { error: "Method not allowed" });
+        return;
+      }
+      await handleReminderSync(req, res);
+      return;
+    }
     if (req.url?.startsWith("/api/state")) {
       jsonResponse(res, 200, await getState());
       return;

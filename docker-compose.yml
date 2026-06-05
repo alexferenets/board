@@ -7,3 +7,4 @@ services:
       - "4173:4173"
     volumes:
       - ./config.json:/app/config.json:ro
+      - ./data:/app/data

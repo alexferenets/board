@@ -5,7 +5,7 @@ Small self-hosted dashboard for a wall display. It is designed to run on a NAS a
 ## What works
 
 - Google Calendar via private iCal/ICS URLs, multiple calendars and colors.
-- Apple Reminders as task items in the weekly calendar, via CalDAV `VTODO` lists when iCloud exposes them.
+- Apple Reminders as task items via iPhone Shortcuts push sync.
 - Weather for today via Open-Meteo.
 - A compact NBIS quote.
 - Clock, hourly weather preview, seven-day agenda, and an explicit shopping-list slot.
@@ -24,10 +24,12 @@ Open `http://localhost:4173`.
 ## Docker / NAS
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 Then point the screen at `http://YOUR_NAS_IP:4173`.
+
+Synced reminder data is stored in `./data/reminders.json`, which is mounted into the container.
 
 ## Google Calendar setup
 
@@ -61,23 +63,52 @@ Example:
 
 The secret iCal link is effectively a read-only secret token. Do not publish it.
 
-## Apple Reminders setup
+## iPhone Reminders push sync
 
-Apple Reminders can be exposed through iCloud CalDAV as `VTODO` items, but Apple does not make the list URLs pleasant to discover and some accounts may not expose upgraded Reminders this way. This app expects explicit list URLs in `appleReminders.lists[]`.
+Upgraded iCloud Reminders are not available through CalDAV. The supported path is to push reminders from a Shortcut to the board:
 
-Use an Apple app-specific password, not your normal Apple ID password: <https://support.apple.com/102654>
-
-1. Create an Apple app-specific password.
-2. Run discovery:
-
-```bash
-APPLE_ID='apple-id@example.com' APPLE_APP_PASSWORD='xxxx-xxxx-xxxx-xxxx' npm run discover:apple
+```text
+POST http://YOUR_NAS_IP:4173/api/sync/reminders?token=YOUR_REMINDER_SYNC_TOKEN
 ```
 
-3. Copy the printed `appleReminders` block into `config.json`.
-4. Replace `PASTE_APP_SPECIFIC_PASSWORD_HERE` with the app-specific password.
+The token is configured in `config.json` under `reminderSync.token`.
 
-Reminder items with due dates are rendered in the main week view as `Task` items.
+The endpoint expects JSON:
+
+```json
+{
+  "source": "iphone",
+  "generatedAt": "2026-06-06T12:00:00Z",
+  "reminders": [
+    {
+      "id": "optional-stable-id",
+      "title": "Buy milk",
+      "list": "Groceries",
+      "due": "2026-06-06T18:00:00+02:00",
+      "allDay": false,
+      "completed": false,
+      "color": "#B14BC9"
+    }
+  ]
+}
+```
+
+Shortcut outline:
+
+1. Add **Find Reminders**.
+2. Filter to incomplete reminders. Optionally limit to reminders with due dates if you only want calendar tasks.
+3. Add an empty list variable, for example `Items`.
+4. Repeat with each reminder.
+5. Inside the repeat, create a Dictionary with `title`, `list`, `due`, `completed`, and optionally `id`.
+6. Add that dictionary to `Items`.
+7. Create a top-level Dictionary with `source`, `generatedAt`, and `reminders`.
+8. Add **Get Contents of URL**:
+   - Method: `POST`
+   - Request Body: `JSON`
+   - URL: `http://YOUR_NAS_IP:4173/api/sync/reminders?token=YOUR_REMINDER_SYNC_TOKEN`
+9. Run it once manually and check that the board shows tasks after its next refresh.
+
+For automatic local-network sync, create a personal automation: **When I Join Wi-Fi** -> run this Shortcut. iPhone background scheduling is not a strict daemon, so Wi-Fi join and a few time-of-day automations are more reliable than expecting exact five-minute sync.
 
 ## Integration issues
 

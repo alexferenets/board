@@ -4,6 +4,11 @@
   "timeZone": "Europe/Amsterdam",
   "refreshSeconds": 300,
   "reloadSeconds": 300,
+  "reminderSync": {
+    "enabled": true,
+    "token": "CHANGE_ME_TO_A_LONG_RANDOM_TOKEN",
+    "path": "data/reminders.json"
+  },
   "weather": {
     "enabled": true,
     "label": "Amsterdam",
@@ -15,12 +20,6 @@
     "label": "NBIS"
   },
   "calendars": [],
-  "appleReminders": {
-    "enabled": false,
-    "username": "apple-id@example.com",
-    "appPassword": "xxxx-xxxx-xxxx-xxxx",
-    "lists": []
-  },
   "bring": {
     "enabled": false
   }
