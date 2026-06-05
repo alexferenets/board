@@ -73,40 +73,30 @@ POST http://YOUR_NAS_IP:4173/api/sync/reminders?token=YOUR_REMINDER_SYNC_TOKEN
 
 The token is configured in `config.json` under `reminderSync.token`.
 
-The endpoint expects JSON:
+Recommended iPhone Shortcut payload:
 
 ```json
 {
-  "source": "iphone",
-  "generatedAt": "2026-06-06T12:00:00Z",
-  "reminders": [
-    {
-      "id": "optional-stable-id",
-      "title": "Buy milk",
-      "list": "Groceries",
-      "due": "2026-06-06T18:00:00+02:00",
-      "allDay": false,
-      "completed": false,
-      "color": "#B14BC9"
-    }
-  ]
+  "reminders": "{\"Completed\":\"No\",\"List\":\"Shared\",\"Title\":\"Buy milk\",\"Deadline\":\"7 Jun 2026 at 00:00\"}\n{\"Completed\":\"No\",\"List\":\"Home\",\"Title\":\"Water plants\",\"Deadline\":\"8 Jun 2026 at 00:00\"}"
 }
 ```
+
+That is one `reminders` text field containing newline-separated JSON objects. The server also accepts a normal JSON array, but the text form is often easier to produce reliably in iOS Shortcuts.
 
 Shortcut outline:
 
 1. Add **Find Reminders**.
 2. Filter to incomplete reminders. Optionally limit to reminders with due dates if you only want calendar tasks.
-3. Add an empty list variable, for example `Items`.
-4. Repeat with each reminder.
-5. Inside the repeat, create a Dictionary with `title`, `list`, `due`, `completed`, and optionally `id`.
-6. Add that dictionary to `Items`.
-7. Create a top-level Dictionary with `source`, `generatedAt`, and `reminders`.
-8. Add **Get Contents of URL**:
+3. Repeat with each reminder.
+4. Inside the repeat, create a Dictionary with `Title`, `List`, `Deadline`, and `Completed`.
+5. After the repeat, use **Get Contents of URL**:
    - Method: `POST`
    - Request Body: `JSON`
    - URL: `http://YOUR_NAS_IP:4173/api/sync/reminders?token=YOUR_REMINDER_SYNC_TOKEN`
-9. Run it once manually and check that the board shows tasks after its next refresh.
+   - Body field type: `Text`
+   - Body field name: `reminders`
+   - Body field value: `Repeat Results`
+6. Run it once manually and check that the response reports the expected reminder count.
 
 For automatic local-network sync, create a personal automation: **When I Join Wi-Fi** -> run this Shortcut. iPhone background scheduling is not a strict daemon, so Wi-Fi join and a few time-of-day automations are more reliable than expecting exact five-minute sync.
 

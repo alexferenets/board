@@ -528,23 +528,28 @@ function looksLikeReminderObject(value) {
   return ["title", "Title", "name", "Name", "summary", "Summary"].some((key) => value[key] !== undefined);
 }
 
-function parseShortcutJsonKey(key) {
-  if (!key.trim().startsWith("{")) return null;
+function parseShortcutJsonText(text) {
+  if (!text.trim().startsWith("{")) return [];
   try {
-    const parsed = JSON.parse(key);
-    return looksLikeReminderObject(parsed) ? parsed : null;
+    const parsed = JSON.parse(text);
+    return looksLikeReminderObject(parsed) ? [parsed] : [];
   } catch {
-    return null;
+    return text
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .flatMap((line) => parseShortcutJsonText(line));
   }
 }
 
 function extractReminderItems(value) {
   if (Array.isArray(value)) return value;
+  if (typeof value === "string") return parseShortcutJsonText(value);
   if (looksLikeReminderObject(value)) return [value];
   if (!value || typeof value !== "object") return [];
   return Object.entries(value).flatMap(([key, entryValue]) => {
-    const parsedKey = parseShortcutJsonKey(key);
-    if (parsedKey) return [parsedKey];
+    const parsedKeyItems = parseShortcutJsonText(key);
+    if (parsedKeyItems.length) return parsedKeyItems;
     if (Array.isArray(entryValue)) return entryValue;
     if (looksLikeReminderObject(entryValue)) return [entryValue];
     return [];
