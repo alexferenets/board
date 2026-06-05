@@ -1,0 +1,14 @@
+{
+  "name": "home-board",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "BOARD_PORT=4173 node src/server.js",
+    "discover:apple": "node scripts/discover-apple-reminders.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

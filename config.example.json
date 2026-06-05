@@ -1,0 +1,26 @@
+{
+  "title": "Home Board",
+  "locale": "nl-NL",
+  "timeZone": "Europe/Amsterdam",
+  "refreshSeconds": 300,
+  "weather": {
+    "enabled": true,
+    "label": "Amsterdam",
+    "latitude": 52.3676,
+    "longitude": 4.9041
+  },
+  "stock": {
+    "symbol": "NBIS",
+    "label": "NBIS"
+  },
+  "calendars": [],
+  "appleReminders": {
+    "enabled": false,
+    "username": "apple-id@example.com",
+    "appPassword": "xxxx-xxxx-xxxx-xxxx",
+    "lists": []
+  },
+  "bring": {
+    "enabled": false
+  }
+}

@@ -1,0 +1,9 @@
+services:
+  board:
+    build: .
+    container_name: home-board
+    restart: unless-stopped
+    ports:
+      - "4173:4173"
+    volumes:
+      - ./config.json:/app/config.json:ro
