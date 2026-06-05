@@ -1,19 +1,26 @@
+const boot = window.__BOARD_BOOTSTRAP__ || {};
+const cacheKey = "home-board-state-v1";
+
 let state = {
-  locale: "en-US",
-  timeZone: "UTC",
-  refreshSeconds: 300,
+  title: boot.title || "Home Board",
+  locale: boot.locale || navigator.language || "en-US",
+  timeZone: boot.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  refreshSeconds: boot.refreshSeconds || 300,
+  reloadSeconds: boot.reloadSeconds || 300,
   events: [],
-  reminders: []
+  reminders: [],
+  errors: []
 };
 
 const els = {
   time: document.querySelector("#time"),
   date: document.querySelector("#date"),
-  title: document.querySelector("#title"),
   updated: document.querySelector("#updated"),
   weather: document.querySelector("#weather"),
   stocks: document.querySelector("#stocks"),
   agenda: document.querySelector("#agenda"),
+  tasksPanel: document.querySelector("#tasks-panel"),
+  tasks: document.querySelector("#tasks"),
   shopping: document.querySelector("#shopping"),
   errorsPanel: document.querySelector("#errors-panel"),
   errors: document.querySelector("#errors")
@@ -43,13 +50,13 @@ function escapeHtml(value = "") {
 
 function tickClock() {
   const now = new Date();
-  els.time.textContent = fmtDate(now, { hour: "2-digit", minute: "2-digit" });
+  els.time.textContent = fmtDate(now, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   els.date.textContent = fmtDate(now, { weekday: "long", day: "numeric", month: "long" });
 }
 
 function renderWeather(weather) {
   if (!weather || weather.error) {
-    els.weather.innerHTML = `<div class="muted-list">${escapeHtml(weather?.error || "Weather is disabled")}</div>`;
+    els.weather.innerHTML = weather?.error ? `<div class="muted-list">${escapeHtml(weather.error)}</div>` : "";
     return;
   }
   els.weather.innerHTML = `
@@ -74,17 +81,14 @@ function renderWeather(weather) {
 
 function renderStocks(stocks = []) {
   if (!stocks.length) {
-    els.stocks.innerHTML = `<div class="muted-list">No symbols configured</div>`;
+    els.stocks.innerHTML = "";
     return;
   }
-  els.stocks.innerHTML = stocks.map((stock) => {
+  els.stocks.innerHTML = stocks.slice(0, 1).map((stock) => {
     if (stock.error) return `<div class="error-item">${escapeHtml(stock.error)}</div>`;
     return `
       <div class="stock-row">
-        <div>
-          <div class="stock-symbol">${escapeHtml(stock.label)}</div>
-          <div class="stock-meta">${escapeHtml(stock.date)} · ${escapeHtml(stock.time)} UTC</div>
-        </div>
+        <div class="stock-symbol">${escapeHtml(stock.label)}</div>
         <div class="stock-price">${Number(stock.close).toFixed(2)}</div>
       </div>
     `;
@@ -116,10 +120,10 @@ function renderAgenda(events = []) {
       ? items.map((event) => `
         <article class="event ${event.kind === "task" ? "task" : ""}" style="border-left-color:${escapeHtml(event.color || "#d6f36b")}">
           <div class="event-title">${escapeHtml(event.title)}</div>
-          <div class="event-meta">${eventTime(event)} · ${escapeHtml(event.calendar)}</div>
+          <div class="event-meta">${eventTime(event)}</div>
         </article>
       `).join("")
-      : `<div class="empty">No events</div>`;
+      : "";
     return `
       <section class="day">
         <header class="day-head">
@@ -137,23 +141,44 @@ function renderErrors(errors = []) {
   els.errors.innerHTML = errors.map((error) => `<div class="error-item">${escapeHtml(error)}</div>`).join("");
 }
 
+function renderTasks(reminders = []) {
+  const undated = reminders.filter((reminder) => !reminder.due);
+  els.tasksPanel.classList.toggle("hidden", !undated.length);
+  if (!undated.length) {
+    els.tasks.innerHTML = "";
+    return;
+  }
+  els.tasks.innerHTML = undated.map((reminder) => `
+    <div class="reminder">
+      <span class="dot" style="background:${escapeHtml(reminder.color || "#d6f36b")}"></span>
+      <div>
+        <div class="reminder-title">${escapeHtml(reminder.title)}</div>
+      </div>
+    </div>
+  `).join("");
+}
+
 function render(nextState) {
-  state = nextState;
+  state = { ...state, ...nextState };
   document.documentElement.lang = state.locale;
   document.title = state.title || "Home Board";
-  els.title.textContent = state.title || "Home Board";
-  els.updated.textContent = `Updated ${fmtDate(new Date(state.generatedAt), { hour: "2-digit", minute: "2-digit" })}`;
+  els.updated.textContent = state.generatedAt
+    ? `Updated ${fmtDate(new Date(state.generatedAt), { hour: "2-digit", minute: "2-digit" })}`
+    : "";
   tickClock();
   renderWeather(state.weather);
   renderStocks(state.stocks);
   renderAgenda(state.events);
+  renderTasks(state.reminders);
   renderErrors(state.errors);
 }
 
 async function loadState() {
   const response = await fetch("/api/state", { cache: "no-store" });
   if (!response.ok) throw new Error(`State failed: ${response.status}`);
-  render(await response.json());
+  const nextState = await response.json();
+  window.localStorage.setItem(cacheKey, JSON.stringify(nextState));
+  render(nextState);
 }
 
 async function refreshLoop() {
@@ -166,6 +191,31 @@ async function refreshLoop() {
   }
 }
 
+function schedulePageReload() {
+  const reloadSeconds = Math.max(60, state.reloadSeconds || 300);
+  window.setTimeout(() => {
+    window.location.reload();
+  }, reloadSeconds * 1000);
+}
+
+function renderCachedState() {
+  try {
+    const cached = JSON.parse(window.localStorage.getItem(cacheKey) || "null");
+    if (cached) {
+      render(cached);
+      return true;
+    }
+  } catch {
+    window.localStorage.removeItem(cacheKey);
+  }
+  document.documentElement.lang = state.locale;
+  document.title = state.title;
+  tickClock();
+  return false;
+}
+
+renderCachedState();
 tickClock();
 window.setInterval(tickClock, 1000);
 refreshLoop();
+schedulePageReload();

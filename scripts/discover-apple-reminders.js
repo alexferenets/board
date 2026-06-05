@@ -89,7 +89,7 @@ const lists = responses.map((block) => {
     url: href ? resolveDavUrl(href, collectionsResponse.url) : "",
     supportsTodo
   };
-}).filter((list) => list.url && list.supportsTodo);
+}).filter((list) => list.url && list.supportsTodo && !/\/calendars\/(?:outbox\/?)?$/i.test(list.url));
 
 if (!lists.length) {
   console.error("No CalDAV VTODO reminder lists were found on this Apple account.");

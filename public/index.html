@@ -1,40 +1,44 @@
 <!doctype html>
-<html lang="en">
+<html lang="nl-NL">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Home Board</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <main class="board">
       <section class="top">
         <div class="clock">
-          <div id="time" class="time">--:--</div>
-          <div id="date" class="date">Loading</div>
+          <div id="time" class="time"></div>
+          <div id="date" class="date"></div>
         </div>
         <div class="status-grid">
           <section class="panel weather" aria-label="Weather">
             <div class="panel-label">Weather</div>
-            <div id="weather" class="weather-body skeleton"></div>
+            <div id="weather" class="weather-body"></div>
           </section>
           <section class="panel stocks" aria-label="Stocks">
             <div class="panel-label">Markets</div>
-            <div id="stocks" class="stock-list skeleton"></div>
+            <div id="stocks" class="stock-list"></div>
           </section>
         </div>
       </section>
 
       <section class="main-grid">
         <section class="agenda" aria-label="Calendar">
-          <div class="section-head">
-            <h1 id="title">Home Board</h1>
-            <span id="updated">--</span>
-          </div>
           <div id="agenda" class="days"></div>
+          <div class="agenda-footer">
+            <span id="updated"></span>
+          </div>
         </section>
 
         <aside class="side">
+          <section id="tasks-panel" class="panel tasks hidden" aria-label="Tasks">
+            <div class="panel-label">Tasks</div>
+            <div id="tasks" class="list"></div>
+          </section>
           <section class="panel shopping" aria-label="Shopping">
             <div class="panel-label">Bring!</div>
             <div id="shopping" class="list muted-list">Not connected yet</div>
@@ -47,6 +51,7 @@
       </section>
     </main>
 
+    <script>window.__BOARD_BOOTSTRAP__ = {};</script>
     <script src="/app.js" type="module"></script>
   </body>
 </html>

@@ -33,7 +33,7 @@ body {
 
 .top {
   display: grid;
-  grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr);
+  grid-template-columns: minmax(320px, 0.72fr) minmax(520px, 1.28fr);
   gap: 18px;
   align-items: stretch;
 }
@@ -61,8 +61,9 @@ body {
 
 .status-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 1fr) minmax(170px, 0.42fr);
+  grid-template-columns: minmax(380px, 1fr) minmax(220px, 0.42fr);
   gap: 18px;
+  align-items: start;
 }
 
 .panel {
@@ -72,6 +73,10 @@ body {
   box-shadow: 0 18px 48px var(--shadow);
   padding: 18px;
   min-width: 0;
+}
+
+.stocks {
+  padding: 12px 14px;
 }
 
 .panel-label {
@@ -144,14 +149,16 @@ body {
 }
 
 .stock-list {
-  margin-top: 18px;
+  margin-top: 8px;
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .stock-row {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
 }
 
 .stock-row:last-child {
@@ -160,12 +167,12 @@ body {
 }
 
 .stock-symbol {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 740;
 }
 
 .stock-price {
-  font-size: clamp(34px, 4vw, 54px);
+  font-size: clamp(26px, 3vw, 40px);
   line-height: 0.95;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
@@ -182,25 +189,17 @@ body {
   min-width: 0;
 }
 
-.section-head {
-  min-height: 42px;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 16px;
-}
-
-h1 {
-  margin: 0;
-  font-size: clamp(26px, 3vw, 44px);
-  line-height: 1.05;
-}
-
 .days {
   display: grid;
   grid-template-columns: repeat(7, minmax(135px, 1fr));
   gap: 10px;
+}
+
+.agenda-footer {
+  min-height: 22px;
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .day {
@@ -314,6 +313,7 @@ h1 {
 .reminder-title {
   font-weight: 680;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .muted-list {
@@ -328,10 +328,6 @@ h1 {
 
 .hidden {
   display: none;
-}
-
-.skeleton {
-  min-height: 84px;
 }
 
 @media (max-width: 1150px) {
@@ -360,7 +356,4 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .section-head {
-    display: grid;
-  }
 }

@@ -48,8 +48,46 @@ function jsonResponse(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function escapeHtml(value = "") {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#039;"
+  })[char]);
+}
+
 function isPlaceholderUrl(url = "") {
   return !url || /YOUR_|example\.com|PLACEHOLDER/i.test(url);
+}
+
+function isCalDavCollectionUrl(url = "") {
+  return /\/calendars\/(?:outbox\/?)?$/i.test(url);
+}
+
+function isAppleSystemReminder(title = "") {
+  return [
+    "The creator of this list has upgraded these reminders.",
+    "Where are my reminders?"
+  ].includes(title.trim());
+}
+
+function describeGoogleCalendarUrlProblem(url = "") {
+  if (!/calendar\.google\.com/i.test(url)) return "";
+  try {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (!parts.includes("ical") || parts.at(-1) !== "basic.ics") {
+      return " - Google calendar URL must be an iCal basic.ics URL";
+    }
+    if (!parts.some((part) => part.startsWith("private-")) && !parts.includes("public")) {
+      return " - this looks like a calendar ID URL; copy the full Secret address in iCal format, including the private-... segment";
+    }
+  } catch {
+    return " - invalid Google calendar URL";
+  }
+  return "";
 }
 
 async function loadConfig() {
@@ -97,7 +135,8 @@ function parseIcsValue(line) {
 function parseIcsDate(field) {
   if (!field?.value) return null;
   const value = field.value;
-  if (field.params.VALUE === "DATE" || /^\d{8}$/.test(value)) {
+  const params = field.params || {};
+  if (params.VALUE === "DATE" || /^\d{8}$/.test(value)) {
     const year = Number(value.slice(0, 4));
     const month = Number(value.slice(4, 6)) - 1;
     const day = Number(value.slice(6, 8));
@@ -119,7 +158,11 @@ function parseBlocks(text, type) {
     if (!current) continue;
     const parsed = parseIcsValue(line);
     if (parsed && parsed.name !== "BEGIN" && parsed.name !== "END") {
-      current[parsed.name] = parsed;
+      if (parsed.name === "EXDATE") {
+        current.EXDATE = [...(current.EXDATE || []), parsed];
+      } else {
+        current[parsed.name] = parsed;
+      }
     }
     if (line === `END:${type}`) {
       blocks.push(current);
@@ -127,6 +170,17 @@ function parseBlocks(text, type) {
     }
   }
   return blocks;
+}
+
+function parseIcsDateList(fields) {
+  return (Array.isArray(fields) ? fields : fields ? [fields] : []).flatMap((field) =>
+    field.value.split(",").map((value) => parseIcsDate({ ...field, value })).filter(Boolean)
+  );
+}
+
+function recurrenceKey(block, date) {
+  const uid = block.UID?.value || block.SUMMARY?.value || "";
+  return `${uid}:${date.getTime()}`;
 }
 
 function decodeXmlEntities(value) {
@@ -147,7 +201,8 @@ function parseRrule(value) {
   }));
 }
 
-function expandEvent(block, calendar, rangeStart, rangeEnd) {
+function expandEvent(block, calendar, rangeStart, rangeEnd, skippedRecurrences = new Set()) {
+  if (block.STATUS?.value === "CANCELLED") return [];
   const start = parseIcsDate(block.DTSTART);
   if (!start) return [];
   const end = parseIcsDate(block.DTEND);
@@ -176,6 +231,7 @@ function expandEvent(block, calendar, rangeStart, rangeEnd) {
   const until = parseIcsDate({ value: rrule.UNTIL || "" })?.date || rangeEnd;
   const byday = rrule.BYDAY ? new Set(rrule.BYDAY.split(",")) : null;
   const weekdayCodes = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+  const exdates = new Set(parseIcsDateList(block.EXDATE).map((item) => recurrenceKey(block, item.date)));
   const events = [];
   let cursor = new Date(start.date);
   let emitted = 0;
@@ -184,7 +240,8 @@ function expandEvent(block, calendar, rangeStart, rangeEnd) {
   while (cursor <= rangeEnd && cursor <= until && emitted < count && steps < 730) {
     const inRange = cursor < rangeEnd && new Date(cursor.getTime() + duration) >= rangeStart;
     const bydayMatch = !byday || byday.has(weekdayCodes[cursor.getDay()]);
-    if (inRange && bydayMatch) events.push(make(cursor, emitted));
+    const excluded = skippedRecurrences.has(recurrenceKey(block, cursor)) || exdates.has(recurrenceKey(block, cursor));
+    if (inRange && bydayMatch && !excluded) events.push(make(cursor, emitted));
     if (bydayMatch) emitted += 1;
     if (freq === "WEEKLY" && byday) {
       cursor = addDays(cursor, 1);
@@ -192,6 +249,8 @@ function expandEvent(block, calendar, rangeStart, rangeEnd) {
       cursor = addDays(cursor, 7 * interval);
     } else if (freq === "MONTHLY") {
       cursor = new Date(cursor.getFullYear(), cursor.getMonth() + interval, cursor.getDate(), cursor.getHours(), cursor.getMinutes(), cursor.getSeconds());
+    } else if (freq === "YEARLY") {
+      cursor = new Date(cursor.getFullYear() + interval, cursor.getMonth(), cursor.getDate(), cursor.getHours(), cursor.getMinutes(), cursor.getSeconds());
     } else {
       cursor = addDays(cursor, interval);
     }
@@ -200,16 +259,36 @@ function expandEvent(block, calendar, rangeStart, rangeEnd) {
   return events;
 }
 
+function expandCalendarBlocks(blocks, calendar, rangeStart, rangeEnd) {
+  const overrides = blocks.filter((block) => block["RECURRENCE-ID"]);
+  const overrideKeys = new Set(overrides.map((block) => {
+    const recurrence = parseIcsDate(block["RECURRENCE-ID"]);
+    return recurrence ? recurrenceKey(block, recurrence.date) : null;
+  }).filter(Boolean));
+  return blocks.flatMap((block) => expandEvent(block, calendar, rangeStart, rangeEnd, overrideKeys));
+}
+
 async function fetchCalendars(config) {
   const rangeStart = new Date();
   rangeStart.setHours(0, 0, 0, 0);
   const rangeEnd = addDays(rangeStart, 8);
   const calendars = (config.calendars || []).filter((calendar) => !isPlaceholderUrl(calendar.url));
   const results = await Promise.allSettled(calendars.map(async (calendar) => {
-    const response = await fetch(calendar.url);
-    if (!response.ok) throw new Error(`${calendar.name}: ${response.status}`);
-    const text = await response.text();
-    return parseBlocks(text, "VEVENT").flatMap((block) => expandEvent(block, calendar, rangeStart, rangeEnd));
+    try {
+      const shapeProblem = describeGoogleCalendarUrlProblem(calendar.url);
+      if (shapeProblem) throw new Error(shapeProblem.replace(/^ - /, ""));
+      const response = await fetch(calendar.url);
+      if (!response.ok) {
+        const hint = response.status === 404 && /calendar\.google\.com/i.test(calendar.url)
+          ? " - copy Google Calendar's full Secret address in iCal format"
+          : "";
+        throw new Error(`${response.status}${hint}`);
+      }
+      const text = await response.text();
+      return expandCalendarBlocks(parseBlocks(text, "VEVENT"), calendar, rangeStart, rangeEnd);
+    } catch (error) {
+      throw new Error(`${calendar.name}: ${error.message}`);
+    }
   }));
   return {
     events: results.flatMap((result) => result.status === "fulfilled" ? result.value : []),
@@ -327,7 +406,7 @@ async function fetchAppleReminders(config) {
   <D:prop><C:calendar-data /></D:prop>
   <C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VTODO" /></C:comp-filter></C:filter>
 </C:calendar-query>`;
-  const lists = (apple.lists || []).filter((list) => !isPlaceholderUrl(list.url));
+  const lists = (apple.lists || []).filter((list) => !isPlaceholderUrl(list.url) && !isCalDavCollectionUrl(list.url));
   const results = await Promise.allSettled(lists.map(async (list) => {
     const response = await fetch(list.url, {
       method: "REPORT",
@@ -356,7 +435,7 @@ async function fetchAppleReminders(config) {
         allDay: Boolean(due?.allDay),
         completed: Boolean(todo.COMPLETED?.value || todo.STATUS?.value === "COMPLETED")
       };
-    }).filter((todo) => todo.due && !todo.completed && new Date(todo.due) <= rangeEnd);
+    }).filter((todo) => !todo.completed && !isAppleSystemReminder(todo.title) && (!todo.due || new Date(todo.due) <= rangeEnd));
   }));
   return {
     reminders: results.flatMap((result) => result.status === "fulfilled" ? result.value : []),
@@ -365,7 +444,7 @@ async function fetchAppleReminders(config) {
 }
 
 function remindersToTaskEvents(reminders) {
-  return reminders.map((reminder) => {
+  return reminders.filter((reminder) => reminder.due).map((reminder) => {
     const start = new Date(reminder.due);
     const end = new Date(start);
     if (reminder.allDay) {
@@ -400,6 +479,7 @@ async function getState() {
     locale: config.locale || "en-US",
     timeZone: config.timeZone || "UTC",
     refreshSeconds: config.refreshSeconds || 300,
+    reloadSeconds: config.reloadSeconds || 300,
     generatedAt: new Date().toISOString(),
     weather,
     stocks,
@@ -412,6 +492,39 @@ async function getState() {
 
 async function serveStatic(req, res) {
   const requestPath = new URL(req.url, `http://${req.headers.host}`).pathname;
+  if (requestPath === "/favicon.ico") {
+    res.writeHead(204, { "Cache-Control": "public, max-age=86400" });
+    res.end();
+    return;
+  }
+  if (requestPath === "/" || requestPath === "/index.html") {
+    try {
+      const [body, config] = await Promise.all([
+        readFile(path.join(publicDir, "index.html"), "utf8"),
+        loadConfig()
+      ]);
+      const boot = {
+        title: config.title || "Home Board",
+        locale: config.locale || "en-US",
+        timeZone: config.timeZone || "UTC",
+        refreshSeconds: config.refreshSeconds || 300,
+        reloadSeconds: config.reloadSeconds || 300
+      };
+      const html = body
+        .replace("<html lang=\"nl-NL\">", `<html lang="${escapeHtml(boot.locale)}">`)
+        .replace("<title>Home Board</title>", `<title>${escapeHtml(boot.title)}</title>`)
+        .replace("window.__BOARD_BOOTSTRAP__ = {};", `window.__BOARD_BOOTSTRAP__ = ${JSON.stringify(boot)};`);
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"
+      });
+      res.end(html);
+      return;
+    } catch (error) {
+      jsonResponse(res, 500, { error: error.message });
+      return;
+    }
+  }
   const safePath = path.normalize(requestPath === "/" ? "/index.html" : requestPath).replace(/^(\.\.[/\\])+/, "");
   const filePath = path.join(publicDir, safePath);
   if (!filePath.startsWith(publicDir)) {

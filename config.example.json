@@ -3,6 +3,7 @@
   "locale": "nl-NL",
   "timeZone": "Europe/Amsterdam",
   "refreshSeconds": 300,
+  "reloadSeconds": 300,
   "weather": {
     "enabled": true,
     "label": "Amsterdam",
