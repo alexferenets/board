@@ -500,25 +500,38 @@ async function fetchAppleReminders(config) {
 }
 
 function normalizeExternalReminder(raw, index, source = "sync") {
-  const title = raw.title || raw.name || raw.summary;
-  if (!title || raw.completed === true || raw.isCompleted === true || raw.status === "completed") return null;
+  const get = (...keys) => keys.find((key) => raw[key] !== undefined) ? raw[keys.find((key) => raw[key] !== undefined)] : undefined;
+  const title = get("title", "Title", "name", "Name", "summary", "Summary");
+  const completed = get("completed", "Completed", "isCompleted", "Is Completed", "IsCompleted");
+  const status = get("status", "Status");
+  if (!title || completed === true || status === "completed" || status === "Completed") return null;
   if (isAppleSystemReminder(title)) return null;
-  const due = parseExternalDue(raw.due || raw.dueDate || raw.deadline);
+  const due = parseExternalDue(get("due", "Due", "dueDate", "Due Date", "DueDate", "deadline", "Deadline"));
   return {
-    id: String(raw.id || raw.uid || `${source}:${index}:${title}`),
+    id: String(get("id", "ID", "uid", "UID") || `${source}:${index}:${title}`),
     title: String(title),
-    list: String(raw.list || raw.listName || raw.calendar || source),
-    color: String(raw.color || "#B14BC9"),
+    list: String(get("list", "List", "listName", "List Name", "ListName", "calendar", "Calendar") || source),
+    color: String(get("color", "Color") || "#B14BC9"),
     due: due?.date.toISOString() || null,
-    allDay: raw.allDay ?? due?.allDay ?? false,
+    allDay: get("allDay", "All Day", "AllDay") ?? due?.allDay ?? false,
     completed: false,
     source
   };
 }
 
 function normalizeReminderSyncPayload(payload) {
-  const source = String(payload.source || "apple-reminders");
-  const reminders = Array.isArray(payload.reminders) ? payload.reminders : Array.isArray(payload.items) ? payload.items : [];
+  const source = String(payload.source || payload.Source || "apple-reminders");
+  const reminders = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload.reminders)
+      ? payload.reminders
+      : Array.isArray(payload.Reminders)
+        ? payload.Reminders
+        : Array.isArray(payload.items)
+          ? payload.items
+          : Array.isArray(payload.Items)
+            ? payload.Items
+            : [];
   return {
     source,
     generatedAt: payload.generatedAt || new Date().toISOString(),
