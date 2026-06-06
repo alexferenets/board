@@ -25,45 +25,53 @@ body {
 }
 
 .board {
-  min-height: 100vh;
-  padding: clamp(18px, 3vw, 36px);
+  height: 100vh;
+  padding: clamp(12px, 1.6vw, 20px);
   display: grid;
-  gap: clamp(18px, 2vw, 28px);
-}
-
-.top {
-  display: grid;
-  grid-template-columns: minmax(320px, 0.72fr) minmax(520px, 1.28fr);
-  gap: 18px;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) clamp(240px, 20vw, 310px);
+  gap: 12px;
+  overflow: hidden;
 }
 
 .clock {
-  min-height: 190px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  position: relative;
+}
+
+.time-row {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .time {
-  font-size: clamp(76px, 10vw, 150px);
+  font-size: clamp(40px, 4.2vw, 68px);
   font-weight: 760;
   line-height: 0.9;
   font-variant-numeric: tabular-nums;
 }
 
-.date {
-  margin-top: 16px;
+.seconds {
+  position: absolute;
+  top: 2px;
+  right: -24px;
   color: var(--muted);
-  font-size: clamp(20px, 2vw, 32px);
-  font-weight: 520;
+  font-size: clamp(12px, 0.95vw, 16px);
+  font-weight: 680;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
-.status-grid {
-  display: grid;
-  grid-template-columns: minmax(380px, 1fr) minmax(220px, 0.42fr);
-  gap: 18px;
-  align-items: start;
+.date {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: clamp(15px, 1.3vw, 20px);
+  font-weight: 520;
 }
 
 .panel {
@@ -71,7 +79,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: 0 18px 48px var(--shadow);
-  padding: 18px;
+  padding: 12px;
   min-width: 0;
 }
 
@@ -88,7 +96,7 @@ body {
 }
 
 .weather-body {
-  margin-top: 18px;
+  margin-top: 10px;
 }
 
 .weather-temp {
@@ -98,13 +106,13 @@ body {
 }
 
 .weather-temp strong {
-  font-size: clamp(54px, 6vw, 92px);
+  font-size: clamp(38px, 4vw, 58px);
   line-height: 0.9;
 }
 
 .weather-temp span {
   color: var(--muted);
-  font-size: 20px;
+  font-size: 15px;
 }
 
 .weather-meta,
@@ -112,21 +120,21 @@ body {
 .event-meta,
 .updated {
   color: var(--muted);
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .hourly {
-  margin-top: 18px;
+  margin-top: 10px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .hour {
   background: #141719;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 9px;
+  padding: 7px;
   min-width: 0;
 }
 
@@ -137,8 +145,8 @@ body {
 }
 
 .hour-temp {
-  margin-top: 4px;
-  font-size: 23px;
+  margin-top: 2px;
+  font-size: 19px;
   font-weight: 760;
 }
 
@@ -172,27 +180,25 @@ body {
 }
 
 .stock-price {
-  font-size: clamp(26px, 3vw, 40px);
+  font-size: clamp(24px, 2.6vw, 34px);
   line-height: 0.95;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
 }
 
-.main-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(290px, 360px);
-  gap: 18px;
-  min-height: 0;
-}
-
 .agenda {
   min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 .days {
+  height: 100%;
+  min-height: 0;
   display: grid;
   grid-template-columns: repeat(7, minmax(135px, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .agenda-footer {
@@ -203,7 +209,8 @@ body {
 }
 
 .day {
-  min-height: 470px;
+  min-height: 0;
+  height: 100%;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -214,7 +221,7 @@ body {
   position: sticky;
   top: 0;
   background: var(--panel-soft);
-  padding: 12px 12px 10px;
+  padding: 9px 10px 8px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -227,54 +234,49 @@ body {
 }
 
 .day-date {
-  margin-top: 5px;
-  font-size: 26px;
+  margin-top: 3px;
+  font-size: 21px;
   font-weight: 760;
 }
 
 .events {
-  padding: 10px;
+  padding: 7px;
   display: grid;
-  gap: 9px;
+  gap: 6px;
+  align-content: start;
 }
 
 .event {
   border-left: 4px solid var(--accent);
   background: #141719;
   border-radius: 6px;
-  padding: 9px 10px;
-  min-height: 58px;
+  padding: 6px 8px;
+  min-height: 0;
 }
 
 .event.task {
   border-left-style: dotted;
   background: #181b17;
+  border-left-width: 3px;
+  padding: 4px 7px;
 }
 
-.event.task .event-title::before {
-  content: "Task";
-  display: inline-block;
-  margin-right: 7px;
-  padding: 2px 5px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 780;
-  text-transform: uppercase;
-  vertical-align: 1px;
+.event.task .event-title {
+  font-size: 12px;
+  line-height: 1.12;
 }
 
 .event-title {
-  font-size: 15px;
-  line-height: 1.22;
+  font-size: 13px;
+  line-height: 1.16;
   font-weight: 680;
   overflow-wrap: anywhere;
 }
 
 .event-meta {
-  margin-top: 5px;
+  margin-top: 3px;
   font-variant-numeric: tabular-nums;
+  font-size: 12px;
 }
 
 .empty {
@@ -286,7 +288,9 @@ body {
 .side {
   display: grid;
   align-content: start;
-  gap: 18px;
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .list {
@@ -331,13 +335,15 @@ body {
 }
 
 @media (max-width: 1150px) {
-  .top,
-  .main-grid {
+  .board {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
   }
 
   .days {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: auto;
   }
 
   .day {
@@ -350,7 +356,6 @@ body {
     padding: 14px;
   }
 
-  .status-grid,
   .hourly,
   .days {
     grid-template-columns: 1fr;

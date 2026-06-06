@@ -4,10 +4,23 @@
   "timeZone": "Europe/Amsterdam",
   "refreshSeconds": 300,
   "reloadSeconds": 300,
+  "cacheSeconds": 120,
+  "peopleColors": {
+    "Alex": "#EF6C02",
+    "Alisa": "#8E24AA",
+    "Shared": "#D91A60",
+    "Regular": "#616161"
+  },
   "reminderSync": {
     "enabled": true,
     "token": "CHANGE_ME_TO_A_LONG_RANDOM_TOKEN",
-    "path": "data/reminders.json"
+    "path": "data/reminders.json",
+    "defaultPerson": "Regular",
+    "listPeople": {
+      "Cleaning Alex": "Alex",
+      "Cleaning Alisa": "Alisa",
+      "Shared": "Shared"
+    }
   },
   "weather": {
     "enabled": true,

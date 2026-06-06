@@ -14,6 +14,7 @@ let state = {
 
 const els = {
   time: document.querySelector("#time"),
+  seconds: document.querySelector("#seconds"),
   date: document.querySelector("#date"),
   updated: document.querySelector("#updated"),
   weather: document.querySelector("#weather"),
@@ -50,7 +51,8 @@ function escapeHtml(value = "") {
 
 function tickClock() {
   const now = new Date();
-  els.time.textContent = fmtDate(now, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  els.time.textContent = fmtDate(now, { hour: "2-digit", minute: "2-digit" });
+  els.seconds.textContent = fmtDate(now, { second: "2-digit" });
   els.date.textContent = fmtDate(now, { weekday: "long", day: "numeric", month: "long" });
 }
 
@@ -96,12 +98,37 @@ function renderStocks(stocks = []) {
 }
 
 function eventTime(event) {
-  if (event.kind === "task" && event.allDay) return "Due";
+  if (event.kind === "task" && event.allDay) return "";
   const start = new Date(event.start);
-  if (event.kind === "task") return `Due ${fmtDate(start, { hour: "2-digit", minute: "2-digit" })}`;
+  if (event.kind === "task") return fmtDate(start, { hour: "2-digit", minute: "2-digit" });
   if (event.allDay) return "All day";
   const end = new Date(event.end);
   return `${fmtDate(start, { hour: "2-digit", minute: "2-digit" })}–${fmtDate(end, { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function sortCalendarEvents(events) {
+  return [...events].sort((a, b) => {
+    if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
+    return new Date(a.start) - new Date(b.start) || a.title.localeCompare(b.title, state.locale);
+  });
+}
+
+function sortTaskEvents(events) {
+  return [...events].sort((a, b) =>
+    String(a.color || "").localeCompare(String(b.color || "")) ||
+    String(a.calendar || "").localeCompare(String(b.calendar || ""), state.locale) ||
+    a.title.localeCompare(b.title, state.locale)
+  );
+}
+
+function renderEvent(event) {
+  const time = eventTime(event);
+  return `
+    <article class="event ${event.kind === "task" ? "task" : ""}" style="border-left-color:${escapeHtml(event.color || "#d6f36b")}">
+      <div class="event-title">${escapeHtml(event.title)}</div>
+      ${time ? `<div class="event-meta">${time}</div>` : ""}
+    </article>
+  `;
 }
 
 function renderAgenda(events = []) {
@@ -116,14 +143,12 @@ function renderAgenda(events = []) {
     const date = new Date(today);
     date.setDate(today.getDate() + index);
     const items = byDay.get(dayKey(date)) || [];
-    const body = items.length
-      ? items.map((event) => `
-        <article class="event ${event.kind === "task" ? "task" : ""}" style="border-left-color:${escapeHtml(event.color || "#d6f36b")}">
-          <div class="event-title">${escapeHtml(event.title)}</div>
-          <div class="event-meta">${eventTime(event)}</div>
-        </article>
-      `).join("")
-      : "";
+    const calendarItems = sortCalendarEvents(items.filter((event) => event.kind !== "task"));
+    const taskItems = sortTaskEvents(items.filter((event) => event.kind === "task"));
+    const body = [
+      ...calendarItems.map(renderEvent),
+      ...taskItems.map(renderEvent)
+    ].join("");
     return `
       <section class="day">
         <header class="day-head">

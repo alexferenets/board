@@ -9,46 +9,42 @@
   </head>
   <body>
     <main class="board">
-      <section class="top">
-        <div class="clock">
-          <div id="time" class="time"></div>
-          <div id="date" class="date"></div>
-        </div>
-        <div class="status-grid">
-          <section class="panel weather" aria-label="Weather">
-            <div class="panel-label">Weather</div>
-            <div id="weather" class="weather-body"></div>
-          </section>
-          <section class="panel stocks" aria-label="Stocks">
-            <div class="panel-label">Markets</div>
-            <div id="stocks" class="stock-list"></div>
-          </section>
+      <section class="agenda" aria-label="Calendar">
+        <div id="agenda" class="days"></div>
+        <div class="agenda-footer">
+          <span id="updated"></span>
         </div>
       </section>
 
-      <section class="main-grid">
-        <section class="agenda" aria-label="Calendar">
-          <div id="agenda" class="days"></div>
-          <div class="agenda-footer">
-            <span id="updated"></span>
+      <aside class="side">
+        <section class="clock panel" aria-label="Clock">
+          <div class="time-row">
+            <div id="time" class="time"></div>
+            <div id="seconds" class="seconds"></div>
           </div>
+          <div id="date" class="date"></div>
         </section>
-
-        <aside class="side">
-          <section id="tasks-panel" class="panel tasks hidden" aria-label="Tasks">
-            <div class="panel-label">Tasks</div>
-            <div id="tasks" class="list"></div>
-          </section>
-          <section class="panel shopping" aria-label="Shopping">
-            <div class="panel-label">Bring!</div>
-            <div id="shopping" class="list muted-list">Not connected yet</div>
-          </section>
-          <section id="errors-panel" class="panel errors hidden" aria-label="Errors">
-            <div class="panel-label">Integration issues</div>
-            <div id="errors" class="list"></div>
-          </section>
-        </aside>
-      </section>
+        <section class="panel weather" aria-label="Weather">
+          <div class="panel-label">Weather</div>
+          <div id="weather" class="weather-body"></div>
+        </section>
+        <section class="panel stocks" aria-label="Stocks">
+          <div class="panel-label">Markets</div>
+          <div id="stocks" class="stock-list"></div>
+        </section>
+        <section id="tasks-panel" class="panel tasks hidden" aria-label="Tasks">
+          <div class="panel-label">Tasks</div>
+          <div id="tasks" class="list"></div>
+        </section>
+        <section class="panel shopping" aria-label="Shopping">
+          <div class="panel-label">Bring!</div>
+          <div id="shopping" class="list muted-list">Not connected yet</div>
+        </section>
+        <section id="errors-panel" class="panel errors hidden" aria-label="Errors">
+          <div class="panel-label">Integration issues</div>
+          <div id="errors" class="list"></div>
+        </section>
+      </aside>
     </main>
 
     <script>window.__BOARD_BOOTSTRAP__ = {};</script>

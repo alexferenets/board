@@ -10,6 +10,7 @@ const publicDir = path.join(rootDir, "public");
 const defaultDataDir = path.join(rootDir, "data");
 const port = Number(process.env.BOARD_PORT || 4173);
 const host = process.env.BOARD_HOST || "127.0.0.1";
+let stateCache = null;
 
 const weatherCodes = new Map([
   [0, "Clear"],
@@ -87,7 +88,12 @@ function getReminderSyncConfig(config) {
   return {
     enabled: sync.enabled !== false,
     token: sync.token || process.env.REMINDER_SYNC_TOKEN || "",
-    path: resolveDataPath(sync.path || "data/reminders.json")
+    path: resolveDataPath(sync.path || "data/reminders.json"),
+    defaultPerson: sync.defaultPerson || "Regular",
+    listPeople: sync.listPeople || {},
+    peopleColors: config.peopleColors || {},
+    defaultColor: sync.defaultColor || config.peopleColors?.[sync.defaultPerson || "Regular"] || "#616161",
+    listColors: sync.listColors || {}
   };
 }
 
@@ -501,7 +507,16 @@ async function fetchAppleReminders(config) {
   };
 }
 
-function normalizeExternalReminder(raw, index, source = "sync") {
+function reminderListColor(listName, syncConfig) {
+  const wanted = String(listName || "").trim().toLowerCase();
+  const personMatch = Object.entries(syncConfig.listPeople || {}).find(([name]) => name.trim().toLowerCase() === wanted);
+  const person = personMatch?.[1] || syncConfig.defaultPerson;
+  if (person && syncConfig.peopleColors?.[person]) return syncConfig.peopleColors[person];
+  const legacyMatch = Object.entries(syncConfig.listColors || {}).find(([name]) => name.trim().toLowerCase() === wanted);
+  return legacyMatch?.[1] || syncConfig.defaultColor || "#616161";
+}
+
+function normalizeExternalReminder(raw, index, source = "sync", syncConfig = {}) {
   const get = (...keys) => keys.find((key) => raw[key] !== undefined) ? raw[keys.find((key) => raw[key] !== undefined)] : undefined;
   const title = get("title", "Title", "name", "Name", "summary", "Summary");
   const completed = get("completed", "Completed", "isCompleted", "Is Completed", "IsCompleted");
@@ -511,11 +526,12 @@ function normalizeExternalReminder(raw, index, source = "sync") {
   if (!title || isCompleted) return null;
   if (isAppleSystemReminder(title)) return null;
   const due = parseExternalDue(get("due", "Due", "dueDate", "Due Date", "DueDate", "deadline", "Deadline"));
+  const list = String(get("list", "List", "listName", "List Name", "ListName", "calendar", "Calendar") || source);
   return {
     id: String(get("id", "ID", "uid", "UID") || `${source}:${index}:${title}`),
     title: String(title),
-    list: String(get("list", "List", "listName", "List Name", "ListName", "calendar", "Calendar") || source),
-    color: String(get("color", "Color") || "#B14BC9"),
+    list,
+    color: String(get("color", "Color") || reminderListColor(list, syncConfig)),
     due: due?.date.toISOString() || null,
     allDay: get("allDay", "All Day", "AllDay") ?? due?.allDay ?? false,
     completed: false,
@@ -523,22 +539,73 @@ function normalizeExternalReminder(raw, index, source = "sync") {
   };
 }
 
+function getExternalReminderDropReason(raw) {
+  const get = (...keys) => keys.find((key) => raw?.[key] !== undefined) ? raw[keys.find((key) => raw[key] !== undefined)] : undefined;
+  const title = get("title", "Title", "name", "Name", "summary", "Summary");
+  if (!title) return "missingTitle";
+  const completed = get("completed", "Completed", "isCompleted", "Is Completed", "IsCompleted");
+  const status = get("status", "Status");
+  const completedText = String(completed ?? "").toLowerCase();
+  const isCompleted = completed === true || completedText === "true" || completedText === "yes" || status === "completed" || status === "Completed";
+  if (isCompleted) return "completed";
+  if (isAppleSystemReminder(title)) return "appleSystem";
+  return null;
+}
+
 function looksLikeReminderObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   return ["title", "Title", "name", "Name", "summary", "Summary"].some((key) => value[key] !== undefined);
 }
 
+function parseConcatenatedJsonObjects(text) {
+  const items = [];
+  let depth = 0;
+  let inString = false;
+  let escaping = false;
+  let start = -1;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaping) {
+        escaping = false;
+      } else if (char === "\\") {
+        escaping = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        try {
+          const parsed = JSON.parse(text.slice(start, index + 1));
+          if (looksLikeReminderObject(parsed)) items.push(parsed);
+        } catch {
+          // Ignore malformed fragments; sync diagnostics will show dropped count.
+        }
+        start = -1;
+      }
+    }
+  }
+  return items;
+}
+
 function parseShortcutJsonText(text) {
-  if (!text.trim().startsWith("{")) return [];
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{")) return [];
   try {
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(trimmed);
     return looksLikeReminderObject(parsed) ? [parsed] : [];
   } catch {
-    return text
-      .split(/\n+/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .flatMap((line) => parseShortcutJsonText(line));
+    return parseConcatenatedJsonObjects(trimmed);
   }
 }
 
@@ -556,15 +623,26 @@ function extractReminderItems(value) {
   });
 }
 
-function normalizeReminderSyncPayload(payload) {
+function normalizeReminderSyncPayload(payload, syncConfig = {}) {
   const source = String(payload.source || payload.Source || "apple-reminders");
   const container = payload.reminders ?? payload.Reminders ?? payload.items ?? payload.Items ?? payload;
-  const reminders = extractReminderItems(container);
+  const rawReminders = extractReminderItems(container);
+  const reminders = rawReminders.map((item, index) => normalizeExternalReminder(item, index, source, syncConfig)).filter(Boolean);
+  const dropped = rawReminders.reduce((acc, item) => {
+    const reason = getExternalReminderDropReason(item);
+    if (reason) acc[reason] = (acc[reason] || 0) + 1;
+    return acc;
+  }, {});
   return {
     source,
     generatedAt: payload.generatedAt || new Date().toISOString(),
     receivedAt: new Date().toISOString(),
-    reminders: reminders.map((item, index) => normalizeExternalReminder(item, index, source)).filter(Boolean)
+    reminders,
+    diagnostics: {
+      extracted: rawReminders.length,
+      saved: reminders.length,
+      dropped
+    }
   };
 }
 
@@ -574,7 +652,12 @@ async function fetchSyncedReminders(config) {
   const payload = await readJsonFile(sync.path, null);
   if (!payload) return { reminders: [], errors: [] };
   return {
-    reminders: (payload.reminders || []).filter((reminder) => !reminder.completed),
+    reminders: (payload.reminders || [])
+      .filter((reminder) => !reminder.completed)
+      .map((reminder) => ({
+        ...reminder,
+        color: reminderListColor(reminder.list, sync)
+      })),
     errors: []
   };
 }
@@ -599,17 +682,19 @@ async function handleReminderSync(req, res) {
   }
   let payload;
   try {
-    payload = normalizeReminderSyncPayload(await readRequestJson(req));
+    payload = normalizeReminderSyncPayload(await readRequestJson(req), sync);
   } catch (error) {
     badRequest(res, error.message);
     return;
   }
   await mkdir(path.dirname(sync.path), { recursive: true });
   await writeFile(sync.path, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  stateCache = null;
   jsonResponse(res, 200, {
     ok: true,
     receivedAt: payload.receivedAt,
-    reminders: payload.reminders.length
+    reminders: payload.reminders.length,
+    diagnostics: payload.diagnostics
   });
 }
 
@@ -638,6 +723,10 @@ function remindersToTaskEvents(reminders) {
 
 async function getState() {
   const config = await loadConfig();
+  const cacheSeconds = Number(config.cacheSeconds || 120);
+  if (stateCache && Date.now() - stateCache.createdAt < cacheSeconds * 1000) {
+    return stateCache.value;
+  }
   const [calendarData, weather, stocks, caldavReminderData, syncedReminderData] = await Promise.all([
     fetchCalendars(config).catch((error) => ({ events: [], errors: [error.message] })),
     fetchWeather(config).catch((error) => ({ error: error.message })),
@@ -646,12 +735,13 @@ async function getState() {
     fetchSyncedReminders(config).catch((error) => ({ reminders: [], errors: [error.message] }))
   ]);
   const reminders = [...caldavReminderData.reminders, ...syncedReminderData.reminders];
-  return {
+  const state = {
     title: config.title,
     locale: config.locale || "en-US",
     timeZone: config.timeZone || "UTC",
     refreshSeconds: config.refreshSeconds || 300,
     reloadSeconds: config.reloadSeconds || 300,
+    cacheSeconds,
     generatedAt: new Date().toISOString(),
     weather,
     stocks,
@@ -660,6 +750,8 @@ async function getState() {
     shopping: [],
     errors: [...(calendarData.errors || []), ...(caldavReminderData.errors || []), ...(syncedReminderData.errors || [])]
   };
+  stateCache = { createdAt: Date.now(), value: state };
+  return state;
 }
 
 async function serveStatic(req, res) {
